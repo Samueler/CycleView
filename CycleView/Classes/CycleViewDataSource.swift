@@ -9,14 +9,14 @@ import UIKit
 
 @objc public protocol CycleViewDataSource {
     
-    /// <#Description#>
-    /// - Parameter cycleView: <#cycleView description#>
+    /// Item个数
+    /// - Parameter cycleView: CycleView
     @objc optional func numberOfItems(in cycleView: CycleView) -> Int
     
-    /// <#Description#>
+    /// 对应下标Item的样式
     /// - Parameters:
-    ///   - cycleView: <#cycleView description#>
-    ///   - index: <#index description#>
+    ///   - cycleView: CycleView
+    ///   - index: 下标
     @objc optional func cycleView(_ cycleView: CycleView, cellForItemAt index: Int) -> UICollectionViewCell
     
 }

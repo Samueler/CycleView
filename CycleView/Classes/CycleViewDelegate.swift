@@ -9,9 +9,9 @@ import UIKit
 
 @objc public protocol CycleViewDelegate {
     
-    /// <#Description#>
+    /// Item被点击时的回调
     /// - Parameters:
-    ///   - cycleView: <#cycleView description#>
-    ///   - index: <#index description#>
+    ///   - cycleView: CycleView
+    ///   - index: 被点击的下标
     @objc optional func didSelectedItem(cycleView: CycleView, at index: Int)
 }

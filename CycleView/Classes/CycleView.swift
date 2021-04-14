@@ -12,6 +12,7 @@ public class CycleView: UIView {
     
     // MARK: - Public Properties
     
+    /// 本地图片数组
     public var localImages: [UIImage]? {
         didSet {
             guard let count = localImages?.count else { return }
@@ -19,6 +20,7 @@ public class CycleView: UIView {
         }
     }
     
+    /// 网络图片链接数组
     public var remoteImages: [String]? {
         didSet {
             guard let count = remoteImages?.count else { return }
@@ -29,22 +31,33 @@ public class CycleView: UIView {
     /// 仅当`remoteImages`和`localImages`均赋值时，设置`remoteImages`优先级是否高于`localImages`;默认为`true`
     public var remoteFirst: Bool = true
     
+    /// 每个Item的大小
     public var itemSize: CGSize = CGSize(width: 44, height: 44) {
         didSet {
             flowLayout.itemSize = itemSize
         }
     }
     
+    /// 各个Item之间的间隔
     public var itemSpacing: CGFloat = 8 {
         didSet {
             flowLayout.minimumLineSpacing = itemSpacing
         }
     }
     
+    /// 内容内间距
     public var contentInset: UIEdgeInsets = .zero
     
-    public var infiniteLoop: Bool = true
+    /// 是否无限轮播
+    public var infiniteLoop: Bool = true {
+        didSet {
+            if !infiniteLoop {
+                totalItemCount = realCount
+            }
+        }
+    }
     
+    /// 是否自动滚动
     public var autoScroll: Bool = true {
         didSet {
             if autoScroll {
@@ -55,12 +68,16 @@ public class CycleView: UIView {
         }
     }
     
+    /// 自动滚动时间间隔
     public var loopTimeInterval: TimeInterval = 2
     
+    /// 点击Item的回调
     public var clickItemCallback: ((_ index: Int) -> Void)?
     
+    /// 滚动下标的回调
     public var indexUpdateCallback: ((_ index: Int) -> Void)?
     
+    /// 自定义Item时的dataSource
     public weak var dataSource: CycleViewDataSource? {
         didSet {
             if let count = dataSource?.numberOfItems?(in: self) {
@@ -69,18 +86,24 @@ public class CycleView: UIView {
         }
     }
     
+    /// CycleView的一些回调
     public weak var delegate: CycleViewDelegate?
     
+    /// 设置圆角
     public var itemCornerRadius: CGFloat = 0
     
+    /// 设置圆角位置
     public var itemRoundingCorners: UIRectCorner = .allCorners
     
+    /// 设置图片显示mode
     public var itemContentMode: UIView.ContentMode = .scaleToFill
     
+    /// 占位图
     public var itemPlaceholder: UIImage?
     
     // MARK: - Public Properties: ReadOnly
     
+    /// 当前滚动到的下标位置
     private(set) var currentIndex: Int = 0 {
         didSet {
             indexUpdateCallback?(currentIndex)
@@ -89,28 +112,86 @@ public class CycleView: UIView {
     
     // MARK: - Public Functions
     
+    /// 刷新数据
     public func reloadData() {
+        
         collectionView.reloadData()
-    }
         
-    public func scroll(to index: Int) {
-        let tempIndex = indexOfIndexPath(IndexPath(item: innerIndex, section: 0))
-        let deltaIndex = index - tempIndex
-        
-        print("scrollTo: \(innerIndex + deltaIndex)")
-        
-        collectionView.setContentOffset(CGPoint(x: targetContentOffsetX(for: innerIndex + deltaIndex), y: 0), animated: true)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.scrollToInitialPosition()
+            self.autoScroll = self.autoScroll ? true : false
+        }
     }
     
+    /// 滚动至指定下标
+    /// - Parameters:
+    ///   - index: 目标下标
+    ///   - resetTimer: 是否需要重置定时器
+    public func scroll(to index: Int, resetTimer: Bool = true) {
+        if resetTimer {
+            cancelTimer()
+        }
+        let tempIndex = indexOfIndexPath(IndexPath(item: innerIndex, section: 0))
+        let deltaIndex = index - tempIndex
+        let targetIndex = innerIndex + deltaIndex
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if targetIndex >= self.totalItemCount || targetIndex < 0 {
+                self.scrollToInitialPosition(animated: true)
+            } else {
+                self.collectionView.setContentOffset(CGPoint(x: self.targetContentOffsetX(for: targetIndex), y: 0), animated: true)
+            }
+        }
+        if resetTimer {
+            startTimer()
+        }
+    }
+    
+    /// 自定义Item时，注册Item
+    /// - Parameter itemType: 自定义Item类型
     public func registerItem<T: UICollectionViewCell>(itemType: T.Type) {
         collectionView.register(itemType, forCellWithReuseIdentifier: String(describing: itemType))
+    }
+    
+    /// 通过Item类型和下标获取Item对象
+    /// - Parameters:
+    ///   - itemType: Item类型
+    ///   - index: Item下标
+    /// - Returns: Item对象
+    public func dequeueReusableItem<T: UICollectionViewCell>(itemType: T.Type, at index: Int) -> T {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: String(describing: itemType), for: IndexPath(item: index, section: 0)) as? T else {
+            fatalError("CycleView dequeue reusable item Error: \(itemType)")
+        }
+        return cell
+    }
+    
+    /// 通过Item获取Item所对应的下标
+    /// - Parameter item: 目标Item
+    /// - Returns: Item对应的下标
+    public func itemIndex(for item: UICollectionViewCell) -> Int {
+        guard let indexPath = collectionView.indexPath(for: item), realCount > 0 else {
+            return 0
+        }
+        
+        return indexPath.item % realCount
     }
     
     // MARK: - Private Properties
     
     private var realCount: Int = 0 {
         didSet {
-            totalItemCount = realCount <= 1 ? realCount : realCount * 100
+            
+            if realCount <= 1 {
+                infiniteLoop = false
+            }
+            
+            if infiniteLoop {
+                totalItemCount = realCount <= 1 ? realCount : realCount * 100
+            } else {
+                totalItemCount = realCount
+            }
         }
     }
  
@@ -187,16 +268,24 @@ public class CycleView: UIView {
         return CGFloat(index) * (itemSize.width + itemSpacing)
     }
     
+    private func scrollToInitialPosition(animated: Bool = false) {
+        if infiniteLoop {
+            collectionView.setContentOffset(CGPoint(x: (CGFloat(totalItemCount) * 0.5) * (itemSize.width + itemSpacing), y: 0), animated: animated)
+        } else {
+            collectionView.setContentOffset(.zero, animated: true)
+        }
+    }
+    
     private func startTimer() {
         cancelTimer()
         
-        if !autoScroll || loopTimeInterval <= 0 {
+        if !autoScroll || loopTimeInterval <= 0 || totalItemCount <= 1 {
             return
         }
         
         timer = Timer.scheduledTimer(withTimeInterval: loopTimeInterval, repeats: true, block: { [weak self] _ in
             guard let self = self else { return }
-            self.scroll(to: self.currentIndex + 1)
+            self.scroll(to: self.currentIndex + 1, resetTimer: false)
         })
         RunLoop.current.add(timer!, forMode: .common)
     }
@@ -241,6 +330,9 @@ public class CycleView: UIView {
 
 extension CycleView: UICollectionViewDataSource {
     public func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        if let count = dataSource?.numberOfItems?(in: self) {
+            realCount = count
+        }
         return totalItemCount
     }
     
@@ -267,15 +359,17 @@ extension CycleView: UICollectionViewDataSource {
             }
         }
         
-//        if itemCornerRadius > 0 {
-//            let maskPath = UIBezierPath(roundedRect: cell.imageView.bounds, byRoundingCorners: itemRoundingCorners, cornerRadii: CGSize(width: itemCornerRadius, height: itemCornerRadius))
-//            let maskLayer = CAShapeLayer()
-//            maskLayer.frame = cell.imageView.bounds
-//            maskLayer.path = maskPath.cgPath
-//            cell.imageView.layer.mask = maskLayer
-//        } else {
-//            cell.imageView.layer.mask = nil
-//        }
+        cell.layoutIfNeeded()
+        
+        if itemCornerRadius > 0 {
+            let maskPath = UIBezierPath(roundedRect: cell.imageView.bounds, byRoundingCorners: itemRoundingCorners, cornerRadii: CGSize(width: itemCornerRadius, height: itemCornerRadius))
+            let maskLayer = CAShapeLayer()
+            maskLayer.frame = cell.imageView.bounds
+            maskLayer.path = maskPath.cgPath
+            cell.imageView.layer.mask = maskLayer
+        } else {
+            cell.imageView.layer.mask = nil
+        }
         
         return cell
     }
@@ -300,21 +394,21 @@ extension CycleView: UIScrollViewDelegate {
     }
     
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        CycleView.cancelPreviousPerformRequests(withTarget: self, selector: #selector(pageScroll), object: nil)
         cancelTimer()
-        
     }
     
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        pageScroll()
-        
+        perform(#selector(pageScroll), with: nil, afterDelay: 0)
         startTimer()
     }
      
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        pageScroll()
+        perform(#selector(pageScroll), with: nil, afterDelay: 0)
+        startTimer()
     }
     
-    private func pageScroll() {
+    @objc private func pageScroll() {
         let targetX = (CGFloat(innerIndex) + 0.5) * (itemSize.width + itemSpacing)
         if collectionView.contentOffset.x <= targetX {
             collectionView.setContentOffset(CGPoint(x: targetContentOffsetX(for: innerIndex), y: 0), animated: true)
